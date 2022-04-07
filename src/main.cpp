@@ -4,11 +4,9 @@
 #include <WiFiManager.h>    // https://github.com/tzapu/WiFiManager       version = 2.0.3-alpha
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <MD_MAX72xx.h>
 
 #define ESP32_RTOS
-
-char PortalName[20];
-uint32_t chipId = 0;
 
 #if defined(ESP32_RTOS) && defined(ESP32)
 void ota_handle( void * parameter ) {
@@ -19,7 +17,7 @@ void ota_handle( void * parameter ) {
 }
 #endif
 
-void setupOTA_Wifi(const char* nameprefix);
+void setupOTA_Wifi(const char* nameprefix, const char* portalpw);
 
 
 WiFiManager wifiManager;
@@ -28,7 +26,7 @@ WiFiManager wifiManager;
 void setup()
 {
   Serial.begin(115200);
-  setupOTA_Wifi("IC-Tracker");    // Name-xxxx.local
+  setupOTA_Wifi("IC-Tracker", "IC-2022");    // Name-xxxx.local PW for Portal
 }
 
 void loop()
@@ -39,7 +37,7 @@ void loop()
   #endif
 }
 
-void setupOTA_Wifi(const char* nameprefix) 
+void setupOTA_Wifi(const char* nameprefix, const char* portalpw) 
 {
   // Configure the hostname
   uint16_t maxlen = strlen(nameprefix) + 7;
@@ -52,21 +50,9 @@ void setupOTA_Wifi(const char* nameprefix)
   //SPIFFS.format();
 
   WiFi.mode(WIFI_STA);
-
-  // unique ESP Id
-  // for(int i=0; i<17; i=i+8)
-  // {
-	//   chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
-	// }
-  // snprintf(PortalName, sizeof(PortalName), "ESP_%d", chipId);
-
   WiFi.setHostname(fullhostname);
   
-  delete[] fullhostname;
-
-  Serial.println(PortalName);
-
-  if (!wifiManager.autoConnect(PortalName, "EnterThis"))
+  if (!wifiManager.autoConnect(fullhostname, portalpw))
   {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
@@ -78,6 +64,8 @@ void setupOTA_Wifi(const char* nameprefix)
   Serial.println("local ip  ");
   Serial.print(WiFi.localIP());
   Serial.println();
+  Serial.println(fullhostname);
+  delete[] fullhostname;
 
   Serial.println("Done");
 

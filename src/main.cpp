@@ -28,7 +28,7 @@ WiFiManager wifiManager;
 void setup()
 {
   Serial.begin(115200);
-  setupOTA_Wifi("Name");    // Name-xxxx.local
+  setupOTA_Wifi("IC-Tracker");    // Name-xxxx.local
 }
 
 void loop()

@@ -102,6 +102,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void setup()
 {
   Serial.begin(115200);
+  pinMode(BUTTON_RED, INPUT_PULLUP);
+  pinMode(BUTTON_BLUE, INPUT_PULLUP);
+
   client.setServer(server, 1883);
   client.setCallback(callback);
 
@@ -114,6 +117,7 @@ void setup()
   smile.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   smile.show();            // Turn OFF all pixels ASAP
   smile.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  color = smile.Color(155,155,155);
 }
 
 void loop()
@@ -130,9 +134,18 @@ void loop()
 
   for (int i = 0; i < NUMPIXELS; i++)
   {
-    smile.setPixelColor(i, smile.Color(255,   100,   100));
+    smile.setPixelColor(i, color);
   }
   smile.show();
+
+  if(!digitalRead(BUTTON_BLUE)){
+    Serial.println("Pressed BLUE");
+    color = smile.Color(0,0,200);
+  }
+  if(!digitalRead(BUTTON_RED)){
+    Serial.println("Pressed RED");
+    color = smile.Color(200,0,0);
+  }
 
   static boolean bInit = true;  // initialise the animation
 

@@ -5,16 +5,23 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <MD_MAX72xx.h>
+#include <MD_Parola.h>
 #include <SPI.h>
 #include <PubSubClient.h>
+#include <Adafruit_NeoPixel.h>
 
 #define ESP32_RTOS
 
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW 
-#define MAX_DEVICES 4
+#define MAX_DEVICES 12
 #define CLK_PIN   18  // or SCK
 #define DATA_PIN  23  // or MOSI
 #define CS_PIN    5  // or SS
+
+#define LED_PIN 27
+#define NUMPIXELS 8
+#define BUTTON_RED 4
+#define BUTTON_BLUE 14
 
 IPAddress server(158, 255, 212, 248);
 
@@ -39,9 +46,11 @@ void reconnect();
 
 WiFiManager wifiManager;
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);                      // SPI hardware interface
+//MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+Adafruit_NeoPixel smile(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // --------------------
 // Constant parameters
@@ -64,6 +73,11 @@ uint32_t prevTimeAnim = 0;  // remember the millis() value in animations
 int16_t idx;                // display index (column)
 uint8_t frame;              // current animation frame
 uint8_t deltaFrame;         // the animation frame offset for the next frame
+
+uint32_t color;
+int r = 0;
+int g = 0;
+int b = 0;
 
 // ========== Control routines ===========
 //
@@ -91,13 +105,15 @@ void setup()
   client.setServer(server, 1883);
   client.setCallback(callback);
 
-  setupOTA_Wifi("IC-Tracker", "IC-2022");    // Name-xxxx.local PW for Portal
+  setupOTA_Wifi("IC-Ticker", "IC-42022");    // Name-xxxx.local PW for Portal
 
   mx.begin();
   resetMatrix();
   prevTimeAnim = millis();
 
-  PRINTS("\n[MD_MAX72XX Pacman]");
+  smile.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  smile.show();            // Turn OFF all pixels ASAP
+  smile.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
 }
 
 void loop()
@@ -111,6 +127,12 @@ void loop()
     reconnect();
   }
   client.loop();
+
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    smile.setPixelColor(i, smile.Color(255,   100,   100));
+  }
+  smile.show();
 
   static boolean bInit = true;  // initialise the animation
 
@@ -139,10 +161,6 @@ void loop()
       mx.setPoint(4, (i*COL_SIZE) + 4, true);
     }
   }
-
-  // now run the animation
-  PRINT("\nINV I:", idx);
-  PRINT(" frame ", frame);
 
   // clear old graphic
   for (uint8_t i=0; i<DATA_WIDTH; i++)
@@ -180,7 +198,7 @@ void setupOTA_Wifi(const char* nameprefix, const char* portalpw)
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(fullhostname);
   
-  if (!wifiManager.autoConnect(fullhostname, portalpw))
+  if (!wifiManager.autoConnect(nameprefix, portalpw))
   {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
@@ -261,9 +279,9 @@ void reconnect() {
     if (client.connect("arduinoClient")) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish("outTopic","hello world");
+      client.publish("devlol/IoTlights", "IC-Ticker");
       // ... and resubscribe
-      client.subscribe("inTopic");
+      client.subscribe("devlol/IoTlights/color");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());

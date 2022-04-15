@@ -9,11 +9,13 @@
 #include <SPI.h>
 #include <PubSubClient.h>
 #include <Adafruit_NeoPixel.h>
+#include <string.h>
+#include <stdio.h>
 #include <time.h>
 #include <font_reverse.h>
 
 #define ESP32_RTOS
-#define LEFTTORIGHT TRUE // display orientation
+#define LEFTTORIGHT 1 // display orientation
 
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
 #define MAX_DEVICES 12
@@ -34,7 +36,7 @@ IPAddress server(158, 255, 212, 248);
 #define PRINTC(s, v) // Print a string followed by a value (char)
 #define PRINTS(s)    // Print a string
 
-#if defined(ESP32_RTOS) && defined(ESP32)
+#if (defined ESP32_RTOS) && (defined ESP32)
 void ota_handle(void *parameter)
 {
   for (;;)
@@ -95,6 +97,7 @@ String mainMSG = "Interface Cultures";
 String noWifiMSG = "NO WIFI visit ... AP: IC-Ticker ... PW: IC-42022 ... IP: 192.168.4.1";
 char disp_MSG[100];
 char mqttMSG[100];
+char timeRev[20];
 
 // ========== Control routines ===========
 //
@@ -115,7 +118,20 @@ void setup()
   client.setCallback(callback);
 
   mx.begin();
-  mx.setFont(UpsideFont);
+
+  if (LEFTTORIGHT)
+  {
+    mx.setFont(UpsideFont);
+    char buf[100];
+    noWifiMSG.toCharArray(buf,noWifiMSG.length()+1);
+    reverseString(buf, disp_MSG, noWifiMSG.length()+1);
+  }
+  else
+  {
+    noWifiMSG.toCharArray(disp_MSG,noWifiMSG.length()+1);
+  }
+  Serial.print("No Wifi msg! ");
+  Serial.println(disp_MSG);
 
   if (mx.displayAnimate())
     mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_DOWN, PA_SCROLL_UP);
@@ -128,9 +144,9 @@ void setup()
   // resetMatrix();
   prevTimeAnim = millis();
 
-  smile.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
-  smile.show();            // Turn OFF all pixels ASAP
-  smile.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  smile.begin();
+  smile.show();
+  smile.setBrightness(80);
   color = smile.Color(155, 155, 155);
 }
 
@@ -331,6 +347,9 @@ void reconnect()
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
+  int count =0;
+  char msgIn[15];
+  
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
@@ -338,9 +357,15 @@ void callback(char *topic, byte *payload, unsigned int length)
   if (strcmp(topic, "devlol/IoTlights/color") == 0)
   {
     for (int i = 0; i < length; i++)
-    {
-      Serial.print((char)payload[i]);
-    }
+  {
+    Serial.print((char)payload[i]);
+    msgIn[i] = (char)payload[i];
+    count++;
+  }
+  msgIn[count + 1] = '/0';
+  Serial.println();
+
+  color = strtoul(msgIn + 1, 0, 16);
   }
   else if (strcmp(topic, "devlol/Ticker") == 0)
   {
@@ -364,31 +389,31 @@ void printLocalTime()
     return;
   }
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-  Serial.print("Day of week: ");
-  Serial.println(&timeinfo, "%A");
-  Serial.print("Month: ");
-  Serial.println(&timeinfo, "%B");
-  Serial.print("Day of Month: ");
-  Serial.println(&timeinfo, "%d");
-  Serial.print("Year: ");
-  Serial.println(&timeinfo, "%Y");
-  Serial.print("Hour: ");
-  Serial.println(&timeinfo, "%H");
-  Serial.print("Hour (12 hour format): ");
-  Serial.println(&timeinfo, "%I");
-  Serial.print("Minute: ");
-  Serial.println(&timeinfo, "%M");
-  Serial.print("Second: ");
-  Serial.println(&timeinfo, "%S");
+  // Serial.print("Day of week: ");
+  // Serial.println(&timeinfo, "%A");
+  // Serial.print("Month: ");
+  // Serial.println(&timeinfo, "%B");
+  // Serial.print("Day of Month: ");
+  // Serial.println(&timeinfo, "%d");
+  // Serial.print("Year: ");
+  // Serial.println(&timeinfo, "%Y");
+  // Serial.print("Hour: ");
+  // Serial.println(&timeinfo, "%H");
+  // Serial.print("Hour (12 hour format): ");
+  // Serial.println(&timeinfo, "%I");
+  // Serial.print("Minute: ");
+  // Serial.println(&timeinfo, "%M");
+  // Serial.print("Second: ");
+  // Serial.println(&timeinfo, "%S");
 
-  Serial.println("Time variables");
-  char timeHour[3];
-  strftime(timeHour, 3, "%H", &timeinfo);
-  Serial.println(timeHour);
-  char timeWeekDay[10];
-  strftime(timeWeekDay, 10, "%A", &timeinfo);
-  Serial.println(timeWeekDay);
-  Serial.println();
+  // Serial.println("Time variables");
+  // char timeHour[3];
+  // strftime(timeHour, 3, "%H", &timeinfo);
+  // Serial.println(timeHour);
+  // char timeWeekDay[10];
+  // strftime(timeWeekDay, 10, "%A", &timeinfo);
+  // Serial.println(timeWeekDay);
+  // Serial.println();
 }
 
 void reverseString(char *original, char *reverse, int size)

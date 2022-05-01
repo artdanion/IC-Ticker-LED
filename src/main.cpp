@@ -14,6 +14,7 @@
 #include <time.h>
 #include <font_reverse.h>
 #include "Font_Data_Numeric.h"
+#include "Parola_Fonts_data.h"
 
 #define ESP32_RTOS
 #define LEFTTORIGHT 0 // display orientation
@@ -28,6 +29,8 @@
 #define NUMPIXELS 8
 #define BUTTON_RED 14
 #define BUTTON_BLUE 4
+
+#define BUF_SIZE 100
 
 IPAddress server(158, 255, 212, 248);
 
@@ -53,9 +56,6 @@ void reconnect();
 void callback(char *topic, byte *payload, unsigned int length);
 void printLocalTime();
 void reverseString(char *original, char *reverse, int size);
-void getTimeFromServer();
-void displayTime();
-void displayOnlyTime();
 uint8_t utf8Ascii(uint8_t ascii);
 void utf8AsciiConvert(char *src, char *des);
 
@@ -67,11 +67,8 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 Adafruit_NeoPixel smile(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// --------------------
-// Constant parameters
-//
-#define ANIMATION_DELAY 150 // milliseconds
-#define MAX_FRAMES 4        // number of animation frames
+#define ANIMATION_DELAY 150
+#define MAX_FRAMES 4
 #define MSG_SIZE 100
 
 // ========== General Variables ===========
@@ -95,54 +92,34 @@ int r = 0;
 int g = 0;
 int b = 0;
 
-const long gmtOffset_sec = 0;
+const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 
-String mainMSG = "QujochÖ Ticker";
+// String mainMSG = "Dreißigster April Zweitausenundzweiundzwanzig";
+String mainMSG = "The tram is near";
 String noWifiMSG = "NO WIFI visit ... AP: Q-Ticker ... PW: qujochoe ... IP: 192.168.4.1";
-String defMSG = "QujochÖ Ticker";
+String defMSG = "qujOchÖ Ticker";
 
 const char *timezone = "CET-1CEST,M3.5.0/02,M10.5.0/03"; // = CET/CEST  --> for adjusting your local time zone see: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 const char *ntpServer = "europe.pool.ntp.org";           // pool.ntp.org       // server pool prefix "2." could be necessary with IPv6
 
 struct tm tm;
-extern "C" uint8_t sntp_getreachability(uint8_t); // shows reachability of NTP Server (value != 0 means server could be reached) see explanation in http://savannah.nongnu.org/patch/?9581#comment0:
 
-#ifdef LOCAL_LANG
-const char *const PROGMEM days[]{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"};
-const char *const PROGMEM months[]{"Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"};
-const char *const PROGMEM monthsXL[]{"Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"};
-#else
-const char *const PROGMEM days[]{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-const char *const PROGMEM months[]{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-const char *const PROGMEM monthsXL[]{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
-#endif
+char disp_MSG[BUF_SIZE];
+char disp_MSG_2[BUF_SIZE];
+char mqttMSG[BUF_SIZE];
+char buf[BUF_SIZE];
+char timeMSG[25];
+char dateMSG[25];
 
-char disp_MSG[100];
-char mqttMSG[100];
-char timeRev[20];
-char buf[100];
-#define BUF_SIZE 100
 char curMessage[BUF_SIZE] = {""};
 char newMessage[BUF_SIZE] = {"Hello! Enter new message?"};
-char timeshow[10]; // array for time shown on display
-char dateshow[30]; // array for date shown on display
-bool newMessageAvailable = true;
-uint8_t enableTime = 1;
-uint8_t enableDate = 1;
-char timeWeekDay[10];
-char dayAfterTomorrow[12];
-unsigned long previouscall = 0;
-const char msgOrdinalNumber[] PROGMEM = ".";
 
-// ========== Control routines ===========
-//
-// void resetMatrix(void)
-// {
-//   mx.control(MD_MAX72XX::INTENSITY, MAX_INTENSITY/2);
-//   mx.control(MD_MAX72XX::UPDATE, MD_MAX72XX::ON);
-//   mx.clear();
-// }
+unsigned long previouscall = 0;
+int showAgain = 0;
+bool newMessageAvailable = true;
+bool change;
+bool flip;
 
 void setup()
 {
@@ -167,6 +144,7 @@ void setup()
   }
   else
   {
+    mx.setFont(ExtASCII);
     noWifiMSG.toCharArray(disp_MSG, noWifiMSG.length() + 1);
   }
   Serial.print("No Wifi msg! ");
@@ -189,9 +167,11 @@ void setup()
   else
   {
     defMSG.toCharArray(disp_MSG, defMSG.length() + 1);
+    mainMSG.toCharArray(disp_MSG_2, mainMSG.length() + 1);
   }
 
   utf8AsciiConvert(disp_MSG, disp_MSG);
+  utf8AsciiConvert(disp_MSG_2, disp_MSG_2);
 
   prevTimeAnim = millis();
 
@@ -231,9 +211,24 @@ void loop()
     color = smile.Color(200, 0, 0);
   }
 
-  if (millis() - previouscall > (60 * 60000) && mx.displayAnimate())
-  { // getting new news data from server and synchronising time every 60 minutes
-    getTimeFromServer();
+  if (millis() - previouscall > (60 * 1000) && mx.displayAnimate())
+  {
+    printLocalTime();
+    mx.displayReset();
+    mx.setSpeed(15);
+    mx.setPause(1000);
+    if (change)
+    {
+      mx.displayText(timeMSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+    }
+    else
+    {
+      mx.displayReset();
+      mx.setSpeed(25);
+      mx.setPause(10);
+      mx.displayText(dateMSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+    }
+    change = !change;
     previouscall = millis();
   }
 
@@ -242,62 +237,38 @@ void loop()
     if (newMessageAvailable)
     {
       mx.displayReset();
+      mx.setSpeed(25);
+      mx.setPause(10);
       mx.displayText(curMessage, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
-      newMessageAvailable = false;
+      if (showAgain < 5)
+      {
+        showAgain++;
+      }
+      else
+      {
+        showAgain = 0;
+        newMessageAvailable = false;
+      }
     }
     else
     {
-      mx.displayReset();
-      mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+      if (!flip)
+      {
+        mx.displayReset();
+        mx.setSpeed(15);
+        mx.setPause(1000);
+        mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+      }
+      else
+      {
+        mx.displayReset();
+        mx.setSpeed(15);
+        mx.setPause(1000);
+        mx.displayText(disp_MSG_2, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+      }
+      flip = !flip;
     }
   }
-
-  // static boolean bInit = true;  // initialise the animation
-
-  // // Is it time to animate?
-  // if (millis()-prevTimeAnim < ANIMATION_DELAY)
-  //   return;
-  // prevTimeAnim = millis();      // starting point for next time
-
-  // mx.control(MD_MAX72XX::UPDATE, MD_MAX72XX::OFF);
-
-  // // Initialize
-  // if (bInit)
-  // {
-  //   mx.clear();
-  //   idx = -DATA_WIDTH;
-  //   frame = 0;
-  //   deltaFrame = 1;
-  //   bInit = false;
-
-  //   // Lay out the dots
-  //   for (uint8_t i=0; i<MAX_DEVICES; i++)
-  //   {
-  //     mx.setPoint(3, (i*COL_SIZE) + 3, true);
-  //     mx.setPoint(4, (i*COL_SIZE) + 3, true);
-  //     mx.setPoint(3, (i*COL_SIZE) + 4, true);
-  //     mx.setPoint(4, (i*COL_SIZE) + 4, true);
-  //   }
-  // }
-
-  // // clear old graphic
-  // for (uint8_t i=0; i<DATA_WIDTH; i++)
-  //   mx.setColumn(idx-DATA_WIDTH+i, 0);
-  // // move reference column and draw new graphic
-  // idx++;
-  // for (uint8_t i=0; i<DATA_WIDTH; i++)
-  //   mx.setColumn(idx-DATA_WIDTH+i, pacman[frame][i]);
-
-  // // advance the animation frame
-  // frame += deltaFrame;
-  // if (frame == 0 || frame == MAX_FRAMES-1)
-  //   deltaFrame = -deltaFrame;
-
-  // // check if we are completed and set initialise for next time around
-  // bInit = (idx == mx.getColumnCount()+DATA_WIDTH);
-
-  // mx.control(MD_MAX72XX::UPDATE, MD_MAX72XX::ON);
-
   return;
 }
 
@@ -401,7 +372,7 @@ void reconnect()
       client.publish("devlol/test", "Q-Ticker");
       // ... and resubscribe
       client.subscribe("devlol/IoTlights/color");
-      client.subscribe("devlol/QTicker");
+      client.subscribe("devlol/Q-Ticker");
     }
     else
     {
@@ -418,7 +389,6 @@ void callback(char *topic, byte *payload, unsigned int length)
 {
   int count = 0;
   char msgIn[15];
-  char mqttMSG[BUF_SIZE];
 
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -438,18 +408,20 @@ void callback(char *topic, byte *payload, unsigned int length)
 
     color = strtoul(msgIn + 1, 0, 16);
   }
-  else if (strcmp(topic, "devlol/QTicker") == 0)
+  else if (strcmp(topic, "devlol/Q-Ticker") == 0)
   {
+    String mqttBuff = "";
+    if (length > 99)
+      length = 99;
+
     for (int i = 0; i < length; i++)
     {
-      mqttMSG[i] = (char)payload[i];
-      count++;
+      mqttBuff = mqttBuff + (char)payload[i];
     }
-    mqttMSG[count + 1] = '/0';
-    strcpy(curMessage, mqttMSG);
+
+    mqttBuff.toCharArray(curMessage, mqttBuff.length() + 1);
     utf8AsciiConvert(curMessage, curMessage);
     newMessageAvailable = true;
-    count = 0;
   }
   else
     return;
@@ -466,31 +438,8 @@ void printLocalTime()
     return;
   }
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-  // Serial.print("Day of week: ");
-  // Serial.println(&timeinfo, "%A");
-  // Serial.print("Month: ");
-  // Serial.println(&timeinfo, "%B");
-  // Serial.print("Day of Month: ");
-  // Serial.println(&timeinfo, "%d");
-  // Serial.print("Year: ");
-  // Serial.println(&timeinfo, "%Y");
-  // Serial.print("Hour: ");
-  // Serial.println(&timeinfo, "%H");
-  // Serial.print("Hour (12 hour format): ");
-  // Serial.println(&timeinfo, "%I");
-  // Serial.print("Minute: ");
-  // Serial.println(&timeinfo, "%M");
-  // Serial.print("Second: ");
-  // Serial.println(&timeinfo, "%S");
-
-  // Serial.println("Time variables");
-  // char timeHour[3];
-  // strftime(timeHour, 3, "%H", &timeinfo);
-  // Serial.println(timeHour);
-
-  strftime(timeWeekDay, 10, "%A", &timeinfo);
-  // Serial.println(timeWeekDay);
-  // Serial.println();
+  strftime(dateMSG, sizeof(timeinfo), "%a, %B %d %Y", &timeinfo);
+  strftime(timeMSG, sizeof(timeinfo), "%H:%M:%S", &timeinfo);
 }
 
 void reverseString(char *original, char *reverse, int size)
@@ -506,60 +455,6 @@ void reverseString(char *original, char *reverse, int size)
   }
 }
 
-uint8_t utf8Ascii(uint8_t ascii)
-{ // See https://forum.arduino.cc/index.php?topic=171056.msg4457906#msg4457906
-  // and http://playground.arduino.cc/Main/Utf8ascii
-  static uint8_t cPrev;
-  static uint8_t cPrePrev;
-  uint8_t c = '\0';
-
-  if (ascii < 0x7f)
-  {
-    cPrev = '\0';    // last character
-    cPrePrev = '\0'; // penultimate character
-    c = ascii;
-  }
-  else
-  {
-    switch (cPrev)
-    {
-    case 0xC2:
-      c = ascii;
-      break;
-    case 0xC3:
-      c = ascii | 0xC0;
-      break;
-    }
-    switch (cPrePrev)
-    {
-
-    case 0xE2:
-      if (cPrev == 0x82 && ascii == 0xAC)
-        c = 128; // EURO SYMBOL          // 128 -> number in defined font table
-      if (cPrev == 0x80 && ascii == 0xA6)
-        c = 133; // horizontal ellipsis
-      if (cPrev == 0x80 && ascii == 0x93)
-        c = 150; // en dash
-      if (cPrev == 0x80 && ascii == 0x9E)
-        c = 132; // DOUBLE LOW-9 QUOTATION MARK
-      if (cPrev == 0x80 && ascii == 0x9C)
-        c = 147; // LEFT DOUBLE QUOTATION MARK
-      if (cPrev == 0x80 && ascii == 0x9D)
-        c = 148; // RIGHT DOUBLE QUOTATION MARK
-      if (cPrev == 0x80 && ascii == 0x98)
-        c = 145; // LEFT SINGLE QUOTATION MARK
-      if (cPrev == 0x80 && ascii == 0x99)
-        c = 146; // RIGHT SINGLE QUOTATION MARK
-
-      break;
-    }
-
-    cPrePrev = cPrev; // save penultimate character
-    cPrev = ascii;    // save last character
-  }
-  return (c);
-}
-
 void utf8AsciiConvert(char *src, char *des) // converts array form source array "src" to destination array "des"
 {
   int k = 0;
@@ -569,174 +464,88 @@ void utf8AsciiConvert(char *src, char *des) // converts array form source array 
     c = utf8Ascii(src[i]);
     if (c != '\0') // if (c!=0)
       des[k++] = c;
+    else
+    {
+      des[k] = '\0'; // des[k]=0;
+    }
   }
   des[k] = '\0'; // des[k]=0;
 }
 
-//// TIME AND DATE FUNCTIONS ////
-
-void getTimeFromServer()
+uint8_t utf8Ascii(uint8_t ascii)
+// Convert a single Character from UTF8 to Extended ASCII according to ISO 8859-1,
+// also called ISO Latin-1. Codes 128-159 contain the Microsoft Windows Latin-1
+// extended characters:
+// - codes 0..127 are identical in ASCII and UTF-8
+// - codes 160..191 in ISO-8859-1 and Windows-1252 are two-byte characters in UTF-8
+//                 + 0xC2 then second byte identical to the extended ASCII code.
+// - codes 192..255 in ISO-8859-1 and Windows-1252 are two-byte characters in UTF-8
+//                 + 0xC3 then second byte differs only in the first two bits to extended ASCII code.
+// - codes 128..159 in Windows-1252 are different, but usually only the €-symbol will be needed from this range.
+//                 + The euro symbol is 0x80 in Windows-1252, 0xa4 in ISO-8859-15, and 0xe2 0x82 0xac in UTF-8.
+//
+// Modified from original code at http://playground.arduino.cc/Main/Utf8ascii
+// Extended ASCII encoding should match the characters at http://www.ascii-code.com/
+//
+// Return "0" if a byte has to be ignored.
 {
-  uint8_t time_retry = 0; // Counter retry counts time server
-#ifdef ESP32
-  configTzTime(timezone, ntpServer); // adjust your local time zone with variable timezone
-#endif
-  struct tm initial; // temp struct for checking if year==1970 (no received time information means year is 1970)
-  initial.tm_year = 70;
+  static uint8_t cPrev;
+  uint8_t c = '\0';
 
-  while (initial.tm_year == 70 && time_retry < 15)
-  {
-#ifdef ESP32 // get time from NTP server (ESP32)
-    getLocalTime(&initial);
-#else // get time from NTP server (ESP8266)
-    if (esp8266::coreVersionNumeric() >= 20700000)
-    {
-      configTime(timezone, ntpServer);
-    }
-    else
-    { // compatibility with ESP8266 Arduino Core Versions < 2.7.0
-      setenv("TZ", timezone, 1);
-      configTime(0, 0, ntpServer);
-    }
-#endif
-    delay(500);
-    time_t now = time(&now);
-    localtime_r(&now, &initial);
-#ifdef DEBUG
-    Serial.print("Time Server connection attempt: ");
-    Serial.println(time_retry + 1);
-    Serial.print("current year: ");
-    Serial.println(1900 + initial.tm_year);
-#endif
-    time_retry++;
-  }
+  PRINTX("\nutf8Ascii 0x", ascii);
 
-  if (time_retry >= 15)
+  if (ascii < 0x7f) // Standard ASCII-set 0..0x7F, no conversion
   {
-#ifdef DEBUG
-    Serial.println("Connection to time server failed");
-#endif
+    cPrev = '\0';
+    c = ascii;
   }
   else
   {
-    time_t now = time(&now);
-    localtime_r(&now, &tm);
-    if (enableTime == 1)
+    switch (cPrev) // Conversion depending on preceding UTF8-character
     {
-      strftime(timeshow, sizeof(timeshow), "%H:%M", &tm);
-#ifdef DEBUG
-      Serial.print("Successfully requested current time from server: ");
-      Serial.println(timeshow);
-#endif
+    case 0xC2:
+      c = ascii;
+      break;
+    case 0xC3:
+      c = ascii | 0xC0;
+      break;
+    case 0x82:
+      if (ascii == 0xAC)
+        c = 0x80; // Euro symbol special case
+    case 0xE2:
+      switch (ascii)
+      {
+      case 0x80:
+        c = 133;
+        break; // ellipsis special case
+      }
+      break;
+
+    default:
+      PRINTS("!Unhandled! ");
     }
+    cPrev = ascii; // save last char
   }
+
+  PRINTX(" -> 0x", c);
+
+  return (c);
 }
 
-void makeDate()
+void utf8Ascii(char *s)
+// In place conversion UTF-8 string to Extended ASCII
+// The extended ASCII string is always shorter.
 {
-  char buf1[20];
-  char buf2[20];
-  char buf3[20];
-  char buf4[20];
-  uint8_t weekday;
+  uint8_t c;
+  char *cp = s;
 
-  time_t now = time(&now);
-  localtime_r(&now, &tm);
+  PRINT("\nConverting: ", s);
 
-  if (enableDate == 1)
+  while (*s != '\0')
   {
-#ifdef SHORTDATE
-    strftime(buf1, sizeof(buf1), "%e", &tm);               // see: http://www.cplusplus.com/reference/ctime/strftime/
-    snprintf(buf2, sizeof(buf2), "%s", months[tm.tm_mon]); // see: http://www.willemer.de/informatik/cpp/timelib.htm
-    strftime(buf3, sizeof(buf3), "%Y", &tm);
-    snprintf(dateshow, sizeof(dateshow), "%s%s %s %s", buf1, msgOrdinalNumber, buf2, buf3); // Example: 1 Mar 2020 / 1. Mrz 2020
-#else
-    snprintf(buf1, sizeof(buf1), "%s", days[tm.tm_wday]);
-    strftime(buf2, sizeof(buf2), "%e", &tm);
-    snprintf(buf3, sizeof(buf3), "%s", monthsXL[tm.tm_mon]);
-    strftime(buf4, sizeof(buf4), "%Y", &tm);
-    snprintf(dateshow, sizeof(dateshow), "%s %s%s %s %s", buf1, buf2, msgOrdinalNumber, buf3, buf4); // Example: Sunday 1 March 2020 / Sonntag 1. März 2020
-    utf8AsciiConvert(dateshow, dateshow);                                                            // conversion necessary for "Jänner" and "März"
-#endif
+    c = utf8Ascii(*s++);
+    if (c != '\0')
+      *cp++ = c;
   }
-
-  weekday = tm.tm_wday;
-  switch (weekday)
-  {
-  case 0:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[2]); // if today is Sunday, day after tomorrow is Tuesday
-    break;
-  case 1:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[3]);
-    break;
-  case 2:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[4]);
-    break;
-  case 3:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[5]);
-    break;
-  case 4:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[6]);
-    break;
-  case 5:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[0]);
-    break;
-  case 6:
-    snprintf(dayAfterTomorrow, sizeof(dayAfterTomorrow), "%s", days[1]);
-    break;
-  }
-
-#ifdef DEBUG
-  Serial.print("Date: ");
-  Serial.println(dateshow);
-#endif
-}
-
-void displayTime()
-{ // standard case: if messages other than time are activated
-  static time_t lastminute = 0;
-  time_t now = time(&now);
-  localtime_r(&now, &tm);
-  if (tm.tm_min != lastminute)
-  {
-    lastminute = tm.tm_min;
-    if (enableTime == 1)
-    {
-      strftime(timeshow, sizeof(timeshow), "%H:%M", &tm);
-#ifdef DEBUG
-      Serial.print("current time: ");
-      Serial.println(timeshow);
-#endif
-    }
-  }
-
-  if (tm.tm_hour == 0 && tm.tm_min == 0 && tm.tm_sec == 0)
-    makeDate(); // at 0:00 make new date
-}
-
-void displayOnlyTime()
-{ // special case: if only time message is activated -> hh:mm:ss
-  mx.setTextAlignment(PA_CENTER);
-  static time_t lastsecond = 0;
-  time_t now = time(&now);
-  localtime_r(&now, &tm);
-  if (tm.tm_sec != lastsecond)
-  {
-    lastsecond = tm.tm_sec;
-    if (enableTime == 1)
-    {
-      strftime(timeshow, sizeof(timeshow), "%H:%M:%S", &tm);
-      mx.setFont(numeric7Seg);
-      mx.displayReset();
-      mx.print(timeshow);
-    }
-    else
-    {
-      mx.displayReset();
-      mx.displayClear(); // display shows nothing
-    }
-  }
-
-  if (tm.tm_hour == 0 && tm.tm_min == 0 && tm.tm_sec == 0)
-    makeDate();
+  *cp = '\0'; // terminate the new string
 }

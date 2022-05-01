@@ -96,9 +96,9 @@ const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 
 // String mainMSG = "Dreißigster April Zweitausenundzweiundzwanzig";
-String mainMSG = "The tram is near";
-String noWifiMSG = "NO WIFI visit ... AP: Q-Ticker ... PW: qujochoe ... IP: 192.168.4.1";
-String defMSG = "qujOchÖ Ticker";
+String mainMSG = "Interface Cultures";
+String noWifiMSG = "NO WIFI visit ... AP: IC-Ticker ... PW: interface ... IP: 192.168.4.1"; // qujochoe
+String defMSG = "IC Ticker";
 
 const char *timezone = "CET-1CEST,M3.5.0/02,M10.5.0/03"; // = CET/CEST  --> for adjusting your local time zone see: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 const char *ntpServer = "europe.pool.ntp.org";           // pool.ntp.org       // server pool prefix "2." could be necessary with IPv6
@@ -154,7 +154,7 @@ void setup()
 
   mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
 
-  setupOTA_Wifi("Q-Ticker", "qujochoe"); // Name-xxxx.local PW for Portal
+  setupOTA_Wifi("IC-Ticker", "interface"); // Name-xxxx.local PW for Portal
 
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   printLocalTime();
@@ -365,14 +365,14 @@ void reconnect()
   {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (client.connect("Q-Ticker"))
+    if (client.connect("IC-Ticker"))
     {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish("devlol/test", "Q-Ticker");
+      client.publish("devlol/test", "IC-Ticker");
       // ... and resubscribe
       client.subscribe("devlol/IoTlights/color");
-      client.subscribe("devlol/Q-Ticker");
+      client.subscribe("devlol/IC-Ticker");
     }
     else
     {
@@ -408,11 +408,11 @@ void callback(char *topic, byte *payload, unsigned int length)
 
     color = strtoul(msgIn + 1, 0, 16);
   }
-  else if (strcmp(topic, "devlol/Q-Ticker") == 0)
+  else if (strcmp(topic, "devlol/IC-Ticker") == 0)
   {
     String mqttBuff = "";
-    if (length > 99)
-      length = 99;
+    if (length > 95)
+      length = 95;
 
     for (int i = 0; i < length; i++)
     {

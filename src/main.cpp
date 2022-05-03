@@ -71,6 +71,11 @@ Adafruit_NeoPixel smile(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define MAX_FRAMES 4
 #define MSG_SIZE 100
 
+#define uS_TO_S_FACTOR 1000000ULL /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP 32400       /* Time ESP32 will go to sleep (in seconds) --> 9h */
+
+RTC_DATA_ATTR int bootCount = 0;
+
 // ========== General Variables ===========
 //
 const uint8_t pacman[MAX_FRAMES][18] = // ghost pursued by a pacman
@@ -111,6 +116,7 @@ char mqttMSG[BUF_SIZE];
 char buf[BUF_SIZE];
 char timeMSG[25];
 char dateMSG[25];
+char sleepTMR[10];
 
 char curMessage[BUF_SIZE] = {""};
 char newMessage[BUF_SIZE] = {"Hello! Enter new message?"};
@@ -126,6 +132,14 @@ void setup()
   Serial.begin(115200);
   pinMode(BUTTON_RED, INPUT_PULLUP);
   pinMode(BUTTON_BLUE, INPUT_PULLUP);
+  delay(500);
+
+  ++bootCount;
+  Serial.println("Boot number: " + String(bootCount));
+
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  Serial.println("Setup ESP32 to sleep for " + String(TIME_TO_SLEEP) +
+                 " Seconds after 23:00");
 
   client.setServer(server, 1883);
   client.setCallback(callback);
@@ -432,6 +446,7 @@ void callback(char *topic, byte *payload, unsigned int length)
 void printLocalTime()
 {
   struct tm timeinfo;
+  int hour = 0;
   if (!getLocalTime(&timeinfo))
   {
     Serial.println("Failed to obtain time");
@@ -440,6 +455,15 @@ void printLocalTime()
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
   strftime(dateMSG, sizeof(timeinfo), "%a, %B %d %Y", &timeinfo);
   strftime(timeMSG, sizeof(timeinfo), "%H:%M:%S", &timeinfo);
+  strftime(sleepTMR, sizeof(timeinfo), "%H", &timeinfo);
+
+  hour = atoi(sleepTMR);
+  if (hour > 23)
+  {
+    Serial.println("Going to sleep now");
+    Serial.flush();
+    esp_deep_sleep_start();
+  }
 }
 
 void reverseString(char *original, char *reverse, int size)

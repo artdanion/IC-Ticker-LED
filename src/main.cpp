@@ -462,6 +462,7 @@ void printLocalTime()
   {
     Serial.println("Going to sleep now");
     Serial.flush();
+    mx.displayClear();
     esp_deep_sleep_start();
   }
 }

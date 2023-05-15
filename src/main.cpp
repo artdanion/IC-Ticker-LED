@@ -101,7 +101,7 @@ const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 3600;
 
 // String mainMSG = "Dreißigster April Zweitausenundzweiundzwanzig";
-String mainMSG = "Interface Cultures";
+String mainMSG = "InterfaceCultures";
 String noWifiMSG = "NO WIFI visit ... AP: IC-Ticker ... PW: interface ... IP: 192.168.4.1"; // qujochoe
 String defMSG = "IC Ticker";
 

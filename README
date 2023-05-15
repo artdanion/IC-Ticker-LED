@@ -1,0 +1,8 @@
+## Interface Culture News Ticker
+
+this project is based on the TinyPico ESP32
+build in VS Code with the Platformio Extension.
+
+it uses the OTA (over the air) update methode see IP adress in the platformio.ini
+
+The IC Ticker gets messages via MQTT and displayes it on the LED Matrix

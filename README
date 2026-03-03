@@ -1,8 +1,202 @@
-## Interface Culture News Ticker
+# IC-Ticker-LED
 
-this project is based on the TinyPico ESP32
-build in VS Code with the Platformio Extension.
+A scrolling LED message ticker built at the **Interface Cultures** department of the **Kunstuniversität Linz**. It receives messages via MQTT and displays them on a MAX7219 LED matrix, running on a TinyPICO (ESP32).
 
-it uses the OTA (over the air) update methode see IP adress in the platformio.ini
+---
 
-The IC Ticker gets messages via MQTT and displayes it on the LED Matrix
+## Hardware
+
+| Component | Details |
+|---|---|
+| Microcontroller | [TinyPICO](https://www.tinypico.com/) (ESP32) |
+| Display | MAX7219 LED matrix — 12 modules daisy-chained (`FC16_HW` type) |
+| Status LEDs | 8× NeoPixel (WS2812) on GPIO 27 |
+| Buttons | Red (GPIO 14), Blue (GPIO 4) |
+| Power | 5V via USB or external supply |
+
+### Wiring (TinyPICO → MAX7219)
+
+| MAX7219 Pin | TinyPICO Pin |
+|---|---|
+| VCC | 5V |
+| GND | GND |
+| DIN | GPIO 23 (MOSI) |
+| CS / LOAD | GPIO 5 |
+| CLK | GPIO 18 (SCK) |
+
+> Pin definitions are set in `src/main.cpp` via `CLK_PIN`, `DATA_PIN`, `CS_PIN`.
+
+---
+
+## Software Setup
+
+### Requirements
+
+- [Visual Studio Code](https://code.visualstudio.com/)
+- [PlatformIO IDE extension](https://platformio.org/install/ide?install=vscode)
+
+### Install & Build
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/artdanion/IC-Ticker-LED.git
+   cd IC-Ticker-LED
+   ```
+2. Open the folder in VS Code — PlatformIO detects `platformio.ini` automatically.
+3. PlatformIO installs all libraries on first build (see dependencies below).
+4. Click **Build** (✓ in the bottom toolbar) to compile.
+
+### First Flash (USB)
+
+For the very first upload, connect the TinyPICO via USB and temporarily change `platformio.ini`:
+
+```ini
+; Comment out OTA for first flash:
+; upload_protocol = espota
+; upload_port = 192.168.8.219
+```
+
+Click **Upload** (→). After that, all subsequent updates can be done wirelessly via OTA.
+
+---
+
+## Configuration
+
+Edit `src/main.cpp` before flashing:
+
+```cpp
+// MQTT broker IP
+IPAddress server(xxx, xxx, xxx, xxx); // change to your broker's IP
+
+// MQTT topics (in reconnect())
+client.subscribe("devlol/IoTlights/color"); // NeoPixel color control (hex string e.g. "#FF0030")
+client.subscribe("devlol/IC-Ticker");       // ticker message
+
+// Display orientation (0 = right-to-left scroll, 1 = left-to-right)
+#define LEFTTORIGHT 0
+
+// Number of MAX7219 modules
+#define MAX_DEVICES 12
+
+// Sleep schedule: device sleeps 23:00–06:00 automatically
+```
+
+### WiFi Setup (WiFiManager)
+
+The device uses **WiFiManager** — no hardcoded WiFi credentials are needed.
+
+- On first boot (or when no saved network is found), the ESP32 opens a captive portal AP:
+  - **SSID:** `IC-Ticker`
+  - **Password:** `interface`
+- Connect to that AP and navigate to `192.168.4.1` to enter your WiFi credentials.
+- Credentials are saved to flash and reused on every subsequent boot.
+- While the portal is active, the no-WiFi message scrolls on the display.
+
+> **eduroam / WPA2 Enterprise:** The `platformio.ini` pins a specific commit of WiFiManager that supports WPA2 Enterprise (e.g. eduroam at the Kunstuni). Don't update that library without testing first.
+
+---
+
+## OTA Updates (Over-The-Air)
+
+Once the device is running and connected to WiFi, firmware can be updated wirelessly — no USB cable required.
+
+OTA is already configured in `platformio.ini`:
+
+```ini
+upload_protocol = espota
+upload_port = 192.168.8.219  ; Replace with your device's current IP
+```
+
+To upload over OTA, simply click **Upload** (→) in VS Code as usual — PlatformIO pushes the firmware over WiFi.
+
+> **Find the device IP:** Check your router's DHCP table, or read it from the Serial Monitor on boot — the device prints its IP at startup.  
+> OTA runs in a dedicated FreeRTOS task (`OTA_HANDLE`) so it doesn't block the display loop.
+
+---
+
+## MQTT Usage
+
+### Send a ticker message
+
+Publish any UTF-8 string (max ~95 chars) to `devlol/IC-Ticker`:
+
+```bash
+mosquitto_pub -h xxx.xxx.xxx.xxx -t "devlol/IC-Ticker" -m "Hello Interface Cultures!"
+```
+
+The message scrolls across the display 5 times, then the ticker returns to its default rotation.
+
+### Control NeoPixel color
+
+Publish a hex color string to `devlol/IoTlights/color`:
+
+```bash
+mosquitto_pub -h xxx.xxx.xxx.xxx -t "devlol/IoTlights/color" -m "#FF0030"
+```
+
+---
+
+## Display Behaviour
+
+The ticker cycles through content in this priority order:
+
+1. **New MQTT message** — scrolls 5× then clears
+2. **Default rotation** — alternates between `"IC Ticker"` and `"InterfaceCultures"`
+3. **Every 60 seconds** — briefly shows the current **time**, then **date** (via NTP)
+
+**Sleep:** The device automatically enters deep sleep at **23:00** and wakes at **06:00** (CET/CEST).  
+**NTP server:** `europe.pool.ntp.org` — timezone string: `CET-1CEST,M3.5.0/02,M10.5.0/03`.
+
+---
+
+## Dependencies
+
+Managed automatically by PlatformIO via `platformio.ini`:
+
+| Library | Version | Purpose |
+|---|---|---|
+| `majicdesigns/MD_MAX72XX` | `^3.3.0` | Low-level MAX7219 driver |
+| `majicdesigns/MD_Parola` | `^3.5.6` | Scrolling text effects |
+| `knolleary/PubSubClient` | `^2.8` | MQTT client |
+| `adafruit/Adafruit NeoPixel` | `^1.10.4` | Status LED ring |
+| `tzapu/WiFiManager` | pinned commit `e1f59eb` | WiFi config portal + WPA2 Enterprise (eduroam) |
+
+> ⚠️ **Do not update WiFiManager** without verifying eduroam / WPA2 Enterprise still works. The specific commit is pinned in `platformio.ini` intentionally.
+
+---
+
+## Project Structure
+
+```
+IC-Ticker-LED/
+├── src/
+│   ├── main.cpp               # Main application logic
+│   ├── font_reverse.h         # Mirrored font for left-to-right orientation
+│   ├── Font_Data_Numeric.h    # Custom numeric font
+│   └── Parola_Fonts_data.h    # Extended ASCII font (ExtASCII)
+├── platformio.ini             # PlatformIO build & OTA config
+└── README.md
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Display stays dark | Check wiring; verify `MAX_DEVICES 12` matches your hardware; confirm `FC16_HW` type |
+| No WiFi portal appears | Power-cycle the device; portal only opens when no saved network is found (`wifiManager.resetSettings()` in code to force it) |
+| MQTT messages not received | Check broker IP in `IPAddress server(...)`, topic string, and that port 1883 is open |
+| OTA upload fails | Verify device IP in `upload_port`; confirm device is on the same network |
+| Garbled characters | UTF-8 is handled by `utf8AsciiConvert()` — some special characters outside ISO 8859-1 won't render |
+| Device sleeps unexpectedly | Normal behaviour 23:00–06:00; verify NTP is syncing correctly via Serial Monitor |
+| eduroam won't connect | Only use the pinned WiFiManager commit — do not upgrade the library |
+
+---
+
+## About
+
+Developed at the **Interface Cultures** department,  
+**Kunstuniversität Linz**, Austria.
+
+Handed over as an open project for future students and developers. Contributions welcome — open a PR or an issue!

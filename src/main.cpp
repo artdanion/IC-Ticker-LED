@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <DNSServer.h>
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager       version = 2.0.3-alpha
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <MD_Parola.h>
@@ -58,6 +58,7 @@ void printLocalTime();
 void reverseString(char *original, char *reverse, int size);
 uint8_t utf8Ascii(uint8_t ascii);
 void utf8AsciiConvert(char *src, char *des);
+void goToSleep();
 
 WiFiManager wifiManager;
 MD_Parola mx = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES); // SPI hardware interface
@@ -298,6 +299,26 @@ void setupOTA_Wifi(const char *nameprefix, const char *portalpw)
   // wifiManager.resetSettings();
   // SPIFFS.format();
 
+   wifiManager.setAPCallback([](WiFiManager *wm) {
+    Serial.println("No WiFi - Config portal started");
+    
+    // Now set and show the no-WiFi message
+    mx.displayReset();
+    mx.setSpeed(20);
+    mx.setPause(10);
+    utf8AsciiConvert(disp_MSG, disp_MSG);
+    mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), 
+                   mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+
+    // Manually pump the display while portal is running
+    // since loop() is still blocked
+    unsigned long start = millis();
+    while (millis() - start < 30000) // scroll for 30 seconds
+    {
+      mx.displayAnimate();
+    }
+  });
+
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(fullhostname);
 
@@ -420,7 +441,8 @@ void callback(char *topic, byte *payload, unsigned int length)
       msgIn[i] = (char)payload[i];
       count++;
     }
-    msgIn[count + 1] = '/0';
+    //msgIn[count + 1] = '/0';
+    msgIn[count] = '\0'; // Null-terminate the string
     Serial.println();
     count = 0;
 
@@ -447,6 +469,25 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 }
 
+void goToSleep()
+{
+  struct tm timeinfo;
+  getLocalTime(&timeinfo);
+
+  // Calculate seconds until 06:00
+  int currentSeconds = timeinfo.tm_hour * 3600 + timeinfo.tm_min * 60 + timeinfo.tm_sec;
+  int wakeSeconds = 6 * 3600; // 06:00:00
+
+  int sleepDuration = wakeSeconds - currentSeconds;
+  if (sleepDuration <= 0)
+    sleepDuration += 24 * 3600; // add 24h if already past 06:00
+
+  Serial.printf("Sleeping for %d seconds\n", sleepDuration);
+  mx.displayClear();
+  esp_sleep_enable_timer_wakeup((uint64_t)sleepDuration * uS_TO_S_FACTOR);
+  esp_deep_sleep_start();
+}
+
 void printLocalTime()
 {
   struct tm timeinfo;
@@ -457,17 +498,14 @@ void printLocalTime()
     return;
   }
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-  strftime(dateMSG, sizeof(timeinfo), "%a, %B %d %Y", &timeinfo);
-  strftime(timeMSG, sizeof(timeinfo), "%H:%M:%S", &timeinfo);
-  strftime(sleepTMR, sizeof(timeinfo), "%H", &timeinfo);
+  strftime(dateMSG, sizeof(dateMSG), "%a, %B %d %Y", &timeinfo);
+  strftime(timeMSG, sizeof(timeMSG), "%H:%M:%S", &timeinfo);
+  strftime(sleepTMR, sizeof(sleepTMR), "%H", &timeinfo);
 
   hour = atoi(sleepTMR);
-  if (hour > 23)
+  if (hour >= 23 || hour < 6)
   {
-    Serial.println("Going to sleep now");
-    Serial.flush();
-    mx.displayClear();
-    esp_deep_sleep_start();
+    goToSleep();
   }
 }
 

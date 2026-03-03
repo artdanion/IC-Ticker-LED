@@ -299,13 +299,28 @@ void setupOTA_Wifi(const char *nameprefix, const char *portalpw)
   // wifiManager.resetSettings();
   // SPIFFS.format();
 
-   wifiManager.setAPCallback([](WiFiManager *wm) {
+  wifiManager.setAPCallback([](WiFiManager *wm)
+                            {
     Serial.println("No WiFi - Config portal started");
     
     // Now set and show the no-WiFi message
     mx.displayReset();
     mx.setSpeed(20);
     mx.setPause(10);
+    if (LEFTTORIGHT)
+  {
+    mx.setFont(UpsideFont);
+    noWifiMSG.toCharArray(buf, noWifiMSG.length() + 1);
+    reverseString(buf, disp_MSG, noWifiMSG.length() + 1);
+
+    defMSG.toCharArray(buf, defMSG.length() + 1);
+    reverseString(buf, disp_MSG, defMSG.length() + 1);
+  }
+  else
+  {
+    mx.setFont(ExtASCII);
+    noWifiMSG.toCharArray(disp_MSG, noWifiMSG.length() + 1);
+  }
     utf8AsciiConvert(disp_MSG, disp_MSG);
     mx.displayText(disp_MSG, PA_CENTER, mx.getSpeed(), 
                    mx.getPause(), PA_SCROLL_LEFT, PA_SCROLL_LEFT);
@@ -316,8 +331,7 @@ void setupOTA_Wifi(const char *nameprefix, const char *portalpw)
     while (millis() - start < 30000) // scroll for 30 seconds
     {
       mx.displayAnimate();
-    }
-  });
+    } });
 
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(fullhostname);
@@ -395,31 +409,23 @@ void setupOTA_Wifi(const char *nameprefix, const char *portalpw)
 
 void reconnect()
 {
-  // Loop until we're reconnected
-  while (!client.connected())
-  {
+  if (client.connected()) return;
+  
+  unsigned long now = millis();
+  static unsigned long lastAttempt = 0;
+  
+  if (now - lastAttempt > 5000) {
+    lastAttempt = now;
     Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect("IC-Ticker"))
-    {
+    if (client.connect("IC-Ticker")) {
       Serial.println("connected");
-      // Once connected, publish an announcement...
       client.publish("devlol/test", "IC-Ticker");
       IPAddress localIP = WiFi.localIP();
-      String ipString = localIP.toString();
-      client.publish("devlol/test", ipString.c_str());
-
-      // ... and resubscribe
+      client.publish("devlol/test", localIP.toString().c_str());
       client.subscribe("devlol/IoTlights/color");
       client.subscribe("devlol/IC-Ticker");
-    }
-    else
-    {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+    } else {
+      Serial.printf("failed, rc=%d, retry in 5s\n", client.state());
     }
   }
 }
@@ -441,7 +447,7 @@ void callback(char *topic, byte *payload, unsigned int length)
       msgIn[i] = (char)payload[i];
       count++;
     }
-    //msgIn[count + 1] = '/0';
+    // msgIn[count + 1] = '/0';
     msgIn[count] = '\0'; // Null-terminate the string
     Serial.println();
     count = 0;
@@ -501,6 +507,12 @@ void printLocalTime()
   strftime(dateMSG, sizeof(dateMSG), "%a, %B %d %Y", &timeinfo);
   strftime(timeMSG, sizeof(timeMSG), "%H:%M:%S", &timeinfo);
   strftime(sleepTMR, sizeof(sleepTMR), "%H", &timeinfo);
+
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+    return; // don't sleep if we don't know the time
+  }
 
   hour = atoi(sleepTMR);
   if (hour >= 23 || hour < 6)

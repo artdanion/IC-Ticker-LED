@@ -384,6 +384,10 @@ void reconnect()
       Serial.println("connected");
       // Once connected, publish an announcement...
       client.publish("devlol/test", "IC-Ticker");
+      IPAddress localIP = WiFi.localIP();
+      String ipString = localIP.toString();
+      client.publish("devlol/test", ipString.c_str());
+
       // ... and resubscribe
       client.subscribe("devlol/IoTlights/color");
       client.subscribe("devlol/IC-Ticker");

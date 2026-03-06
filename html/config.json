@@ -1,0 +1,11 @@
+{
+    "mqtt": {
+        "server": "mqtt.devlol.org",
+        "port": 443,
+        "clientId": "ticker_IC",
+        "username": "",
+        "password": "",
+        "useSSL": true,
+        "cleansession": true
+    }
+}
